@@ -23,6 +23,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.DisplayMetrics;
+import android.view.GestureDetector;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
@@ -171,6 +172,7 @@ public class PlayerActivity extends Activity implements IjkMediaPlayer.OnPrepare
 
     private ScaleGestureDetector scaleGestureDetector;
     private ViewScaleGestureListener scaleGestureListener;
+    private GestureDetector doubleTapGestureDetector;
     private float previousX, previousY;
     private boolean gesture_moved, gesture_scaled, gesture_click_disabled;
     private float video_origX, video_origY;
@@ -460,6 +462,20 @@ public class PlayerActivity extends Activity implements IjkMediaPlayer.OnPrepare
 
     @SuppressLint("ClickableViewAccessibility")
     private void setVideoGestures() {
+        // 双击快进/快退：左侧三分之一快退、右侧三分之一快进、中间三分之一保持原来的双击播放/暂停
+        final int doubleTapSeekSeconds = SharedPreferencesUtil.getInt("player_doubletap_seek_seconds", 10);
+        if (SharedPreferencesUtil.getBoolean("player_doubletap_seek", true)) {
+            doubleTapGestureDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
+                @Override
+                public boolean onDoubleTap(MotionEvent e) {
+                    return handleDoubleTapSeek(e, doubleTapSeekSeconds);
+                }
+            });
+            doubleTapGestureDetector.setIsLongpressEnabled(false); // 长按倍速由 OnLongClickListener 处理
+        } else {
+            doubleTapGestureDetector = null;
+        }
+
         if (SharedPreferencesUtil.getBoolean("player_scale", true)) {
             scaleGestureListener = new ViewScaleGestureListener(layout_video);
             scaleGestureDetector = new ScaleGestureDetector(this, scaleGestureListener);
@@ -467,6 +483,9 @@ public class PlayerActivity extends Activity implements IjkMediaPlayer.OnPrepare
             boolean doublemove_enabled = SharedPreferencesUtil.getBoolean("player_doublemove", true); // 是否启用双指移动
 
             layout_control.setOnTouchListener((v, event) -> {
+                if (doubleTapGestureDetector != null)
+                    doubleTapGestureDetector.onTouchEvent(event);
+
                 int action = event.getActionMasked();
                 int pointerCount = event.getPointerCount();
                 boolean singleTouch = pointerCount == 1;
@@ -562,6 +581,9 @@ public class PlayerActivity extends Activity implements IjkMediaPlayer.OnPrepare
             });
         } else {
             layout_control.setOnTouchListener((view, motionEvent) -> {
+                if (doubleTapGestureDetector != null)
+                    doubleTapGestureDetector.onTouchEvent(motionEvent);
+
                 if (motionEvent.getAction() == MotionEvent.ACTION_UP && onLongClick) {
                     onLongClick = false;
                     float normalSpeed = speed_values[seekbar_speed.getProgress()];
@@ -607,6 +629,44 @@ public class PlayerActivity extends Activity implements IjkMediaPlayer.OnPrepare
     private void autohideReset() {
         layout_control.removeCallbacks(hidecon);
         layout_control.postDelayed(hidecon, 4000);
+    }
+
+    /**
+     * 双击视频区域的快退/快进判定。
+     * 左侧三分之一：快退；右侧三分之一：快进；中间三分之一：返回 false，
+     * 交回 clickUI() 处理原来的"双击播放/暂停"。
+     * 返回 true 时会把 gesture_click_disabled 置位，避免紧接着的单击事件再把视频暂停。
+     */
+    private boolean handleDoubleTapSeek(MotionEvent e, int seekSeconds) {
+        if (ijkPlayer == null || !isPrepared || isLiveMode) return false;
+
+        // 缩放状态下双击依然是"恢复原始大小"（与「视频可缩放」的设置说明保持一致）
+        if (SharedPreferencesUtil.getBoolean("player_scale", true)
+                && scaleGestureListener != null && scaleGestureListener.can_reset) return false;
+
+        float width = layout_control.getWidth();
+        if (width <= 0f) return false;
+
+        float x = e.getX();
+        long offset = (seekSeconds > 0 ? seekSeconds : 10) * 1000L;
+        long currentPosition = ijkPlayer.getCurrentPosition();
+
+        if (x < width / 3f) {
+            long newPosition = currentPosition - offset;
+            if (newPosition < 0) newPosition = 0;
+            seekToPosition(newPosition);
+        } else if (x > width * 2f / 3f) {
+            long newPosition = currentPosition + offset;
+            long duration = ijkPlayer.getDuration();
+            if (duration > 0 && newPosition > duration) newPosition = duration;
+            seekToPosition(newPosition);
+        } else {
+            return false; // 中间区域保持双击播放/暂停
+        }
+
+        gesture_click_disabled = true;
+        showcon();
+        return true;
     }
 
     private void clickUI() {
