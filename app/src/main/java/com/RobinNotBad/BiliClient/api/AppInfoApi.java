@@ -29,6 +29,7 @@ import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Locale;
 import java.util.Objects;
 
 public class AppInfoApi {
@@ -38,14 +39,6 @@ public class AppInfoApi {
         if (!SharedPreferencesUtil.getBoolean("disclaimer_shown", false)) {
             MsgUtil.showDialog("免责声明", "使用前请先阅读：\n" + context.getString(R.string.about_to_uncle), 3);
             SharedPreferencesUtil.putBoolean("disclaimer_shown", true);
-        }
-
-        if (SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.NIGHT_REMINDER_ENABLE, true)) {
-            Calendar calendar = Calendar.getInstance();
-            int hour = calendar.get(Calendar.HOUR_OF_DAY);
-            if (hour >= 23 || hour <= 3) {
-                MsgUtil.showDialog("温馨提醒", "夜深了，要注意休息呐~", 3);
-            }
         }
 
         try {
@@ -99,6 +92,32 @@ public class AppInfoApi {
             Log.e("debug-terminal", e.toString());
             MsgUtil.err("终端接口出现问题（不影响软件内容）", e);
         }
+    }
+
+    /**
+     * 「夜深了」提醒。
+     * <p>
+     * 与旧实现相比有两点改动：
+     * 1. 同一晚只提醒一次（以凌晨4点为分界，23点与次日凌晨算同一晚）。
+     * 这样第三方播放器把终端进程回收、返回终端触发重启时不会再重复弹窗；
+     * 2. 由主界面（InstanceActivity）创建后调用，而不是在 Application 启动时就弹，
+     * 避免对话框被随后创建的主页压在下面（部分设备上曾出现该现象）。
+     */
+    public static void checkNightReminder() {
+        if (!SharedPreferencesUtil.getBoolean(SharedPreferencesUtil.NIGHT_REMINDER_ENABLE, true)) return;
+
+        Calendar calendar = Calendar.getInstance();
+        int hour = calendar.get(Calendar.HOUR_OF_DAY);
+        // 只提醒 23:00 ~ 03:59
+        if (!(hour >= 23 || hour <= 3)) return;
+
+        // 减去4小时再取日期，使 23 点与次日凌晨归入同一晚，避免跨零点重复提醒
+        calendar.add(Calendar.HOUR_OF_DAY, -4);
+        String night = new SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(calendar.getTime());
+        if (night.equals(SharedPreferencesUtil.getString("night_reminder_date", ""))) return;
+        SharedPreferencesUtil.putString("night_reminder_date", night);
+
+        MsgUtil.showDialog("温馨提醒", "夜深了，要注意休息呐~", 3);
     }
 
     public static final ArrayList<String> customHeaders = new ArrayList<>() {{
