@@ -200,7 +200,7 @@ public class MsgUtil {
                 .putExtra("title", title)
                 .putExtra("content", text)
                 .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        context.startActivity(testIntent);
+        startWhenMainPageReady(testIntent);
     }
 
     public static void showDialog(String title, String content) {
@@ -209,7 +209,7 @@ public class MsgUtil {
         intent.putExtra("title", title);
         intent.putExtra("content", content);
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        context.startActivity(intent);
+        startWhenMainPageReady(intent);
     }
 
     public static void showDialog(String title, String content, int wait_time) {
@@ -219,7 +219,33 @@ public class MsgUtil {
         intent.putExtra("content", content);
         intent.putExtra("wait_time", wait_time);
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        context.startActivity(intent);
+        startWhenMainPageReady(intent);
+    }
+
+    /**
+     * 弹出「置顶窗口」。
+     * <p>
+     * 应用刚启动时，公告、免责声明、「夜深了」等窗口是从后台线程用 Application 上下文
+     * 以 FLAG_ACTIVITY_NEW_TASK 启动的。如果这时主界面还没创建，窗口会先进入任务栈，
+     * 随后创建的主页便把它压在下面（部分设备上表现为"置顶窗口出现在软件主页下面"）。
+     * 这里只在"启动阶段"（进程启动后 15 秒内）等主界面就绪，最多等约 9 秒；
+     * 正常运行期间以及超时后都立即弹出，不影响原有功能。
+     */
+    private static void startWhenMainPageReady(final Intent intent) {
+        startWhenMainPageReady(intent, 0);
+    }
+
+    private static void startWhenMainPageReady(final Intent intent, final int attempt) {
+        boolean startingUp = System.currentTimeMillis() - BiliTerminal.getProcessStartTime() < 15000;
+        if (!startingUp || BiliTerminal.getInstanceActivityOnTop() != null || attempt >= 30) {
+            try {
+                BiliTerminal.context.startActivity(intent);
+            } catch (Exception e) {
+                Log.e("debug-error", "弹出窗口失败", e);
+            }
+        } else {
+            CenterThreadPool.runOnUiThreadAfter(300, () -> startWhenMainPageReady(intent, attempt + 1));
+        }
     }
 
     public static class Action {
