@@ -4,6 +4,9 @@ import android.content.SharedPreferences;
 
 import com.RobinNotBad.BiliClient.BuildConfig;
 
+import org.json.JSONArray;
+import org.json.JSONException;
+
 import java.io.BufferedReader;
 import java.io.StringReader;
 import java.text.SimpleDateFormat;
@@ -17,9 +20,11 @@ import java.util.Map;
 /**
  * 设置与教程进度备份/恢复工具。
  * 将 SharedPreferences 中的设置备份到 /Documents/BiliClient/setting.txt（按设置树排序，含默认值），
- * 将教程进度备份到 /Documents/BiliClient/guide.txt。
+ * 将教程进度备份到 /Documents/BiliClient/guide.txt，
+ * 将搜索历史备份到 /Documents/BiliClient/SearchRecords.txt。
  * 仅由实验室的"备份/恢复"开关、"备份"与"加载"按钮调用，无自动定时任务。
  * 文本格式：每行 "key=值类型:值"，保证顺序稳定且易读。
+ * SearchRecords.txt 为每行一条搜索记录（与设置备份一样带 # 注释头，记录保存日期与客户端版本）。
  */
 public class BackupUtil {
 
@@ -44,7 +49,9 @@ public class BackupUtil {
         add("app_announcement_last");
         add("dev_test_link");
         add("dev_catgirl_apikey");
-        add(SharedPreferencesUtil.search_history); // 搜索历史为个人数据，由"数据迁移"单独导出/合并
+        add("night_reminder_date"); // 「夜深了」当天的提醒标记，属于运行态
+        add("backup_prompt_shown"); // 首次启动加载备份的询问标记
+        add(SharedPreferencesUtil.search_history); // 搜索历史单独存放在 SearchRecords.txt，不混进 setting.txt
     }};
 
     // 按设置树顺序排列的设置项，值为默认值（value 的 Java 类型决定存储类型）
@@ -67,6 +74,8 @@ public class BackupUtil {
         SETTINGS.put("player_audio_only", Boolean.FALSE);
         SETTINGS.put("player_scale", Boolean.TRUE);
         SETTINGS.put("player_doublemove", Boolean.TRUE);
+        SETTINGS.put("player_doubletap_seek", Boolean.TRUE);
+        SETTINGS.put("player_doubletap_seek_seconds", 10);
         SETTINGS.put("player_display", Boolean.TRUE);
         SETTINGS.put("player_codec", Boolean.TRUE);
         SETTINGS.put("player_audio", Boolean.FALSE);
@@ -231,23 +240,36 @@ public class BackupUtil {
         sb.append(key).append('=').append(val).append('\n');
     }
 
-    // 对值做转义：\\ 和 \n 反转义，避免破坏行结构
+    // 对值做转义：\\ 和 \n 反转义，避免破坏行结构；'#' 用于搜索历史，避免被当成注释行
     private static String escape(String s) {
-        return s.replace("\\", "\\\\").replace("\n", "\\n").replace("=", "\\=");
+        return s.replace("\\", "\\\\").replace("\n", "\\n").replace("=", "\\=").replace("#", "\\#");
     }
 
     private static String unescape(String s) {
-        return s.replace("\\=", "=").replace("\\n", "\n").replace("\\\\", "\\");
+        return s.replace("\\#", "#").replace("\\=", "=").replace("\\n", "\n").replace("\\\\", "\\");
+    }
+
+    /**
+     * 从 setting.txt 恢复设置（覆盖当前值），返回是否成功。
+     */
+    public static boolean restoreSettings() {
+        return restoreSettings(false);
     }
 
     /**
      * 从 setting.txt 恢复设置，返回是否成功。
+     *
+     * @param onlyMissing 仅在 SharedPreferences 中不存在该键时才写入。
+     *                    启动时的自动恢复使用该模式，避免把用户后来改过的设置
+     *                    （例如实验室-调试里的开关）又覆盖回备份文件里的旧值/默认值；
+     *                    手动点「加载」时使用覆盖模式，得到与备份完全一致的结果。
      */
-    public static boolean restoreSettings() {
+    public static boolean restoreSettings(boolean onlyMissing) {
         try {
             String content = FileUtil.readString(FileUtil.getSettingFile());
             if (content == null || content.isEmpty()) return true; // 无可恢复内容，不算失败
-            SharedPreferences.Editor editor = SharedPreferencesUtil.getSharedPreferences().edit();
+            SharedPreferences prefs = SharedPreferencesUtil.getSharedPreferences();
+            SharedPreferences.Editor editor = prefs.edit();
             BufferedReader reader = new BufferedReader(new StringReader(content));
             String line;
             while ((line = reader.readLine()) != null) {
@@ -256,6 +278,7 @@ public class BackupUtil {
                 if (eq <= 0) continue;
                 String key = line.substring(0, eq);
                 if (isExcluded(key)) continue;
+                if (onlyMissing && prefs.contains(key)) continue; // 已经存在的设置不动
                 String typed = line.substring(eq + 1);
                 applyValue(editor, key, typed);
             }
@@ -318,14 +341,24 @@ public class BackupUtil {
     }
 
     /**
-     * 从 guide.txt 恢复教程进度，返回是否成功。
+     * 从 guide.txt 恢复教程进度（覆盖当前值），返回是否成功。
      * 空文件视为"无教程进度可恢复"，不算失败。
      */
     public static boolean restoreTutorial() {
+        return restoreTutorial(false);
+    }
+
+    /**
+     * 从 guide.txt 恢复教程进度，返回是否成功。
+     *
+     * @param onlyMissing 仅在 SharedPreferences 中不存在该键时才写入（启动时自动恢复使用）
+     */
+    public static boolean restoreTutorial(boolean onlyMissing) {
         try {
             String content = FileUtil.readString(FileUtil.getGuideFile());
             if (content == null || content.isEmpty()) return true; // 无内容可恢复，不算失败
-            SharedPreferences.Editor editor = SharedPreferencesUtil.getSharedPreferences().edit();
+            SharedPreferences prefs = SharedPreferencesUtil.getSharedPreferences();
+            SharedPreferences.Editor editor = prefs.edit();
             BufferedReader reader = new BufferedReader(new StringReader(content));
             String line;
             while ((line = reader.readLine()) != null) {
@@ -333,6 +366,7 @@ public class BackupUtil {
                 int eq = line.indexOf('=');
                 if (eq <= 0) continue;
                 String key = line.substring(0, eq);
+                if (onlyMissing && prefs.contains(key)) continue;
                 String typed = line.substring(eq + 1);
                 applyValue(editor, key, typed);
             }
@@ -345,21 +379,117 @@ public class BackupUtil {
     }
 
     /**
-     * 仅执行备份（设置 + 教程），返回是否成功。
+     * 仅执行备份（设置 + 教程 + 搜索历史），返回是否成功。
      */
     public static boolean backupOnly() {
         boolean s = backupSettings();
         boolean g = backupTutorial();
-        return s && g;
+        boolean h = backupSearchHistory();
+        return s && g && h;
     }
 
     /**
-     * 仅执行恢复（设置 + 教程），返回是否成功。
+     * 仅执行恢复（设置 + 教程 + 搜索历史，覆盖模式），返回是否成功。
      * 空文件视为无可恢复内容，不算失败。
      */
     public static boolean restoreOnly() {
         boolean s = restoreSettings();
         boolean g = restoreTutorial();
-        return s && g;
+        boolean h = restoreSearchHistory();
+        return s && g && h;
+    }
+
+    /**
+     * 启动时的自动恢复（"备份/恢复"开关打开时调用）。
+     * 只补齐 SharedPreferences 中不存在的键，不会覆盖用户已经改过的设置，
+     * 避免每次启动都把实验室里的开关等设置还原成备份文件中的旧值。
+     */
+    public static boolean autoRestore() {
+        boolean s = restoreSettings(true);
+        boolean g = restoreTutorial(true);
+        boolean h = restoreSearchHistory(true);
+        return s && g && h;
+    }
+
+    /**
+     * 备份搜索历史到 SearchRecords.txt（每行一条，带与设置备份一致的 # 版本/日期注释头），返回是否成功。
+     * 即使没有搜索记录也会写出（只含注释头）的文件，保证文件存在。
+     */
+    public static boolean backupSearchHistory() {
+        try {
+            StringBuilder sb = new StringBuilder();
+            sb.append(buildHeader("哔哩终端 搜索历史备份"));
+            String json = SharedPreferencesUtil.getString(SharedPreferencesUtil.search_history, "[]");
+            JSONArray array = null;
+            try {
+                array = new JSONArray(json == null || json.isEmpty() ? "[]" : json);
+            } catch (JSONException ignored) {
+            }
+            if (array != null) {
+                for (int i = 0; i < array.length(); i++) {
+                    String item = array.optString(i, "");
+                    if (item.isEmpty()) continue;
+                    // 与设置备份相同的转义方式，避免记录里的换行/等号破坏行结构
+                    sb.append(escape(item)).append('\n');
+                }
+            }
+            return FileUtil.writeString(FileUtil.getSearchRecordsFile(), sb.toString());
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    /**
+     * 从 SearchRecords.txt 恢复搜索历史（覆盖模式），返回是否成功。
+     */
+    public static boolean restoreSearchHistory() {
+        return restoreSearchHistory(false);
+    }
+
+    /**
+     * 从 SearchRecords.txt 恢复搜索历史，返回是否成功。
+     * 文件不存在或为空时直接返回 true（视为没有可恢复内容，避免空指针）。
+     * 恢复时与当前已有的搜索历史合并去重（备份中的记录排在前面），防止覆盖掉备份之后新产生的记录。
+     *
+     * @param onlyMissing 当前已有搜索历史时直接跳过（启动时自动恢复使用）
+     */
+    public static boolean restoreSearchHistory(boolean onlyMissing) {
+        try {
+            String content = FileUtil.readString(FileUtil.getSearchRecordsFile());
+            if (content == null || content.isEmpty()) return true; // 没有备份文件，不算失败
+
+            if (onlyMissing) {
+                String current = SharedPreferencesUtil.getString(SharedPreferencesUtil.search_history, "[]");
+                if (current != null && !current.isEmpty() && !"[]".equals(current)) return true;
+            }
+
+            List<String> restored = new ArrayList<>();
+            BufferedReader reader = new BufferedReader(new StringReader(content));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (line.isEmpty() || line.startsWith("#")) continue; // 跳过空行和注释头
+                String item = unescape(line).trim();
+                if (!item.isEmpty() && !restored.contains(item)) restored.add(item);
+            }
+            if (restored.isEmpty()) return true; // 只有注释头，没有记录
+
+            List<String> merged = new ArrayList<>(restored);
+            try {
+                JSONArray existing = new JSONArray(
+                        SharedPreferencesUtil.getString(SharedPreferencesUtil.search_history, "[]"));
+                for (int i = 0; i < existing.length(); i++) {
+                    String item = existing.optString(i, "");
+                    if (!item.isEmpty() && !merged.contains(item)) merged.add(item);
+                }
+            } catch (JSONException ignored) {
+            }
+
+            SharedPreferencesUtil.putString(SharedPreferencesUtil.search_history, new JSONArray(merged).toString());
+            return true;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
     }
 }
