@@ -402,8 +402,16 @@ public class DynamicApi {
             JSONObject module_author = modules.getJSONObject("module_author");
             userInfo.mid = module_author.getLong("mid");
             userInfo.name = module_author.getString("name");
-            if (!module_author.isNull("following"))
-                userInfo.followed = module_author.getInt("following") != 0;
+if (!module_author.isNull("following")) {
+    Object followingObj = module_author.opt("following");
+    if (followingObj instanceof Boolean) {
+        userInfo.followed = (Boolean) followingObj;
+    } else if (followingObj instanceof Number) {
+        userInfo.followed = ((Number) followingObj).intValue() != 0;
+    } else {
+        userInfo.followed = false;
+    }
+}
             userInfo.avatar = module_author.getString("face");
             JSONObject vipJson = module_author.optJSONObject("vip");
             if (vipJson != null) {
