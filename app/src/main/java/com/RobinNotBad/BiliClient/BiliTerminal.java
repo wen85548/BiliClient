@@ -36,6 +36,13 @@ public class BiliTerminal extends Application {
 
     public static boolean DPI_FORCE_CHANGE = false;
 
+    /** 本进程的启动时刻，用于判断当前是否处于"应用刚启动、主界面还没出来"的阶段 */
+    private static final long PROCESS_START_TIME = System.currentTimeMillis();
+
+    public static long getProcessStartTime() {
+        return PROCESS_START_TIME;
+    }
+
     private static WeakReference<InstanceActivity> instance = new WeakReference<>(null);
 
     @Override
@@ -94,12 +101,10 @@ public class BiliTerminal extends Application {
                 });
             }
 
-            // 若实验室"备份/恢复"开关已开启，启动时从本地文件恢复设置与教程进度（一次性，非循环）
+            // 若实验室"备份/恢复"开关已开启，启动时从本地文件恢复设置、教程进度与搜索历史（一次性，非循环）
+            // 采用"只补齐缺失项"的方式，避免把用户后来修改过的设置还原成备份文件里的旧值
             if (SharedPreferencesUtil.getBoolean("backup_restore_enable", false)) {
-                CenterThreadPool.run(() -> {
-                    BackupUtil.restoreSettings();
-                    BackupUtil.restoreTutorial();
-                });
+                CenterThreadPool.run(() -> BackupUtil.autoRestore());
             }
 
             // 确保 /Documents/BiliClient/login.txt 存在（即使未登录也创建），供登录信息读取/加载
