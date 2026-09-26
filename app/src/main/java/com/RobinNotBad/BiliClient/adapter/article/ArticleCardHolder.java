@@ -37,13 +37,20 @@ public class ArticleCardHolder extends RecyclerView.ViewHolder {
 
     public void showArticleCard(ArticleCard articleCard, Context context) {
         title.setText(StringUtil.htmlToString(articleCard.title));
+
+        // itemView 是复用的，先把可能被上一次绑定隐藏掉的控件恢复显示，避免"有的卡片没有封面文字"
+        upName.setVisibility(View.VISIBLE);
+        upIcon.setVisibility(View.VISIBLE);
+        readIcon.setVisibility(View.VISIBLE);
+        readTimes.setVisibility(View.VISIBLE);
+
         String upNameStr = articleCard.upName;
-        if (upNameStr.isEmpty()) {
+        if (upNameStr == null || upNameStr.isEmpty()) {
             upName.setVisibility(View.GONE);
             upIcon.setVisibility(View.GONE);
         } else upName.setText(upNameStr);
 
-        if (articleCard.view.isEmpty()) {
+        if (articleCard.view == null || articleCard.view.isEmpty()) {
             readIcon.setVisibility(View.GONE);
             readTimes.setVisibility(View.GONE);
         } else readTimes.setText(articleCard.view);
