@@ -37,6 +37,11 @@ public class SettingTerminalPlayerActivity extends RefreshListActivity {
                 add(new SettingSection("switch", "缩放时可移动", "player_doublemove",
                         getString(R.string.desc_doublemove),
                         "true"));
+                add(new SettingSection("switch", "双击快退快进", "player_doubletap_seek",
+                        "双击屏幕左侧快退、右侧快进，双击屏幕中间仍然是播放/暂停；缩放状态下双击用于恢复原始大小",
+                        "true"));
+                add(new SettingSection("input_int", "快退快进秒数", "player_doubletap_seek_seconds",
+                        "双击快退/快进一次跳转的秒数", "10"));
 
                 add(new SettingSection("divider", "", "", "", ""));
 
