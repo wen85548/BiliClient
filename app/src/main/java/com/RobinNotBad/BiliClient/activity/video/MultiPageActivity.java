@@ -31,55 +31,66 @@ public class MultiPageActivity extends BaseActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_simple_list);
-        RecyclerView recyclerView = findViewById(R.id.recyclerView);
-        findViewById(R.id.top).setOnClickListener(view -> finish());
 
-        TextView textView = findViewById(R.id.pageName);
-        textView.setText("请选择分页");
-
-        Intent intent = getIntent();
+        final Intent intent = getIntent();
         playerData = intent.getParcelableExtra("data");
+        if (playerData == null) {
+            finish();
+            return;
+        }
 
-        TerminalContext.getInstance().getVideoInfoByAidOrBvId(playerData.aid, "").observe(this, result -> result.onSuccess((videoInfo -> {
-            this.videoInfo = videoInfo;
-            PageChooseAdapter adapter = new PageChooseAdapter(this, videoInfo.pagenames);
+        // 先显示 activity_loading，真实布局在后台解析，避免低性能设备上点进来先卡一下
+        asyncInflate(R.layout.activity_simple_list, (layoutView, id) -> {
+            RecyclerView recyclerView = findViewById(R.id.recyclerView);
+            findViewById(R.id.top).setOnClickListener(view -> finish());
 
-            if (intent.getIntExtra("download", 0) == 1) {    //下载模式
-                adapter.setOnItemClickListener(position -> {
-                    File rootPath = new File(FileUtil.getVideoDownloadPath(), FileUtil.stringToFile(videoInfo.title));
-                    File downPath = new File(rootPath, FileUtil.stringToFile(videoInfo.pagenames.get(position)));
-                    if (downPath.exists()) {
-                        File file_sign = new File(downPath, ".DOWNLOADING");
-                        MsgUtil.showMsg(file_sign.exists() ? "已在下载队列" : "已下载完成");
-                    } else {
-                        startActivity(
-                                new Intent()
-                                        .putExtra("page", position)
-                                        .setClass(this, QualityChooserActivity.class)
-                                        .putExtra("aid", videoInfo.aid)
-                                        .putExtra("bvid", videoInfo.bvid)
-                        );
-                    }
-                });
-            } else {        //普通播放模式
-                adapter.setOnItemClickListener(position -> {
-                    long cid_curr = videoInfo.cids.get(position);
-                    if (cid_curr != playerData.cidHistory) {
-                        playerData = videoInfo.toPlayerData(position);
-                        playerData.cidHistory = cid_curr;
-                        playerData.timeStamp = 0;
-                    }
+            TextView textView = findViewById(R.id.pageName);
+            textView.setText("请选择分页");
 
-                    PlayerApi.startGettingUrl(playerData);
-                    playerData.timeStamp = 0;
-                });
-            }
+            TerminalContext.getInstance().getVideoInfoByAidOrBvId(playerData.aid, "").observe(this,
+                    result -> result.onSuccess(info -> {
+                        videoInfo = info;
+                        PageChooseAdapter adapter = new PageChooseAdapter(this, videoInfo.pagenames);
 
-            recyclerView.setLayoutManager(new CustomLinearManager(this));
-            recyclerView.setAdapter(adapter);
-        })));
+                        if (intent.getIntExtra("download", 0) == 1) {    //下载模式
+                            adapter.setOnItemClickListener(position -> {
+                                File rootPath = new File(FileUtil.getVideoDownloadPath(), FileUtil.stringToFile(videoInfo.title));
+                                File downPath = new File(rootPath, FileUtil.stringToFile(videoInfo.pagenames.get(position)));
+                                if (downPath.exists()) {
+                                    File file_sign = new File(downPath, ".DOWNLOADING");
+                                    MsgUtil.showMsg(file_sign.exists() ? "已在下载队列" : "已下载完成");
+                                } else {
+                                    startActivity(
+                                            new Intent()
+                                                    .putExtra("page", position)
+                                                    .setClass(this, QualityChooserActivity.class)
+                                                    .putExtra("aid", videoInfo.aid)
+                                                    .putExtra("bvid", videoInfo.bvid)
+                                    );
+                                }
+                            });
+                        } else {        //普通播放模式
+                            adapter.setOnItemClickListener(position -> {
+                                long cid_curr = videoInfo.cids.get(position);
+                                if (cid_curr != playerData.cidHistory) {
+                                    playerData = videoInfo.toPlayerData(position);
+                                    playerData.cidHistory = cid_curr;
+                                    playerData.timeStamp = 0;
+                                }
 
+                                PlayerApi.startGettingUrl(playerData);
+                                playerData.timeStamp = 0;
+                            });
+                        }
+
+                        recyclerView.setLayoutManager(new CustomLinearManager(this));
+                        recyclerView.setAdapter(adapter);
+                    }).onFailure(error -> {
+                        if (isFinishing() || isDestroyed()) return;
+                        MsgUtil.err("获取分页信息失败：", error);
+                        finish();
+                    }));
+        });
     }
 
 }
