@@ -1,6 +1,7 @@
 package com.RobinNotBad.BiliClient.activity.settings;
 
 import android.annotation.SuppressLint;
+import android.content.Intent;
 import android.os.Bundle;
 
 import com.RobinNotBad.BiliClient.BiliTerminal;
@@ -66,11 +67,11 @@ public class SettingLaboratoryActivity extends RefreshListActivity {
 
                 add(new SettingSection("title", "数据备份", "", "", ""));
                 add(new SettingSection("switch", "备份/恢复", "backup_restore_enable",
-                        "开启后，软件的设置与教程进度会同步到 /Documents/BiliClient 目录下的 setting.txt 与 guide.txt 文件（重启应用生效）", "false"));
+                        "开启后，每次启动应用时会自动读取 /Documents/BiliClient 下的备份文件，恢复设置、教程进度与搜索历史。\n注意：此开关只负责“自动恢复”，不会自动备份；需要备份请点下面的「备份」按钮。恢复会覆盖当前设置，部分设置需重启应用后生效。", "false"));
                 add(new SettingSection("button", "备份", "backup_do",
-                        "将当前所有设置与教程进度备份到 setting.txt / guide.txt 文件", ""));
+                        "将当前所有设置、教程进度备份到 setting.txt / guide.txt，搜索历史备份到 SearchRecords.txt", ""));
                 add(new SettingSection("button", "加载", "backup_load",
-                        "从 setting.txt / guide.txt 文件恢复设置与教程进度", ""));
+                        "从 setting.txt / guide.txt / SearchRecords.txt 恢复设置、教程进度与搜索历史（部分设置重启应用后生效）", ""));
                 add(new SettingSection("button", "备份登录信息", "login_read",
                         "将当前登录信息备份到 /Documents/BiliClient/login.txt，便于迁移登录状态", ""));
                 add(new SettingSection("button", "读取登录信息", "login_load",
@@ -99,12 +100,21 @@ public class SettingLaboratoryActivity extends RefreshListActivity {
             if ("backup_do".equals(section.id)) {
                 section.extra = (Runnable) () -> {
                     boolean ok = BackupUtil.backupOnly();
-                    MsgUtil.showMsgLong(ok ? "备份成功：设置已写入 setting.txt，教程已写入 guide.txt" : "备份失败，请检查存储权限");
+                    MsgUtil.showMsgLong(ok
+                            ? "备份成功：设置→setting.txt，教程→guide.txt，搜索历史→SearchRecords.txt"
+                            : "备份失败，请检查存储权限");
                 };
             } else if ("backup_load".equals(section.id)) {
                 section.extra = (Runnable) () -> {
                     boolean ok = BackupUtil.restoreOnly();
-                    MsgUtil.showMsgLong(ok ? "加载成功：已从 setting.txt / guide.txt 恢复" : "加载失败，文件不存在或格式错误");
+                    if (!ok) {
+                        MsgUtil.showMsgLong("加载失败：文件不存在或格式错误");
+                        return;
+                    }
+                    // 恢复只是把值写进 SharedPreferences，很多设置（Dpi、边距、播放器、界面等）
+                    // 在本次进程启动时就已经读进内存了，必须重启应用才会生效。
+                    // 以前这里只提示"加载成功"，用户会误以为功能失效，只好重装应用。
+                    showRestartDialog();
                 };
             } else if ("login_read".equals(section.id)) {
                 section.extra = (Runnable) () -> {
@@ -170,6 +180,38 @@ public class SettingLaboratoryActivity extends RefreshListActivity {
         setAdapter(adapter);
 
         setRefreshing(false);
+    }
+
+    /**
+     * 恢复完成后提示重启应用。
+     * 设置项大多只在应用启动时读取一次，不重启的话"加载"看起来就像没生效
+     * （以前用户只能通过重装应用来解决，见 issue：安装器更新后数据备份加载失效）。
+     */
+    private void showRestartDialog() {
+        if (isFinishing() || isDestroyed()) return;
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("加载完成")
+                .setMessage("已从 setting.txt / guide.txt / SearchRecords.txt 恢复设置、教程进度与搜索历史。\n\n"
+                        + "部分设置需要重启应用才会生效，是否立即重启？")
+                .setPositiveButton("立即重启", (dialog, which) -> restartApp())
+                .setNegativeButton("稍后", (dialog, which) -> MsgUtil.showMsgLong("已加载，重启应用后生效"))
+                .setCancelable(true)
+                .show();
+    }
+
+    /** 重启应用进程，让恢复的设置立刻生效 */
+    private void restartApp() {
+        try {
+            Intent intent = getPackageManager().getLaunchIntentForPackage(getPackageName());
+            if (intent != null) {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                startActivity(intent);
+            }
+        } catch (Exception e) {
+            MsgUtil.showMsgLong("重启失败，请手动退出并重新打开应用");
+            return;
+        }
+        android.os.Process.killProcess(android.os.Process.myPid());
     }
 
     /**
