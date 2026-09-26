@@ -164,14 +164,6 @@ public class SettingMainActivity extends InstanceActivity {
                 MsgUtil.showMsg(isChecked ? "已开启启动时检查更新" : "已关闭启动时检查更新");
             });
 
-            //数据迁移
-            MaterialCardView dataMigration = findViewById(R.id.data_migration);
-            dataMigration.setOnClickListener(view -> {
-                Intent intent = new Intent();
-                intent.setClass(this, DataMigrationActivity.class);
-                startActivity(intent);
-            });
-
             //公告列表
             MaterialCardView announcement = findViewById(R.id.announcement);
             announcement.setOnClickListener(view -> {
