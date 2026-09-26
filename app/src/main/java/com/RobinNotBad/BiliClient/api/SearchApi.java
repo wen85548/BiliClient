@@ -91,7 +91,7 @@ public class SearchApi {
 
                     String bvid = card.getString("bvid");
                     long aid = card.getLong("aid");
-                    String cover = "http:" + card.getString("pic"); // 离谱了嗷，前面甚至不肯加个http:
+                    String cover = fixImageUrl(card.getString("pic")); // 接口有时给 "//host/..."，有时给完整地址
                     String upName = card.getString("author");
 
                     long play = card.getLong("play");
@@ -125,7 +125,7 @@ public class SearchApi {
 
             long mid = card.getLong("mid");
             String name = card.getString("uname");
-            String avatar = "http:" + card.getString("upic");
+            String avatar = fixImageUrl(card.getString("upic"));
             String sign = card.getString("usign");
             int fans = card.getInt("fans");
             int level = card.getInt("level");
@@ -141,16 +141,36 @@ public class SearchApi {
             JSONObject card = input.getJSONObject(i); // 获得专栏卡片
 
             articleCard.id = card.getLong("id");
-            if (card.getJSONArray("image_urls").length() > 0)
-                articleCard.cover = "http:" + card.getJSONArray("image_urls").getString(0);
-            else
+            // 专栏封面：搜索接口返回的 image_urls 有时是 "//i0.hdslb.com/..."（协议相对），
+            // 有时已经是完整的 "http://i0.hdslb.com/..."。以前一律在前面拼 "http:"，
+            // 遇到完整地址就会变成 "http:http://..." 这个无效地址，导致搜索结果里的图文不显示图片。
+            if (card.has("image_urls") && !card.isNull("image_urls")) {
+                JSONArray imageUrls = card.optJSONArray("image_urls");
+                if (imageUrls != null && imageUrls.length() > 0)
+                    articleCard.cover = fixImageUrl(imageUrls.optString(0, ""));
+                else
+                    articleCard.cover = "";
+            } else
                 articleCard.cover = "";
-            articleCard.upName = card.getString("category_name");
+            articleCard.upName = card.optString("category_name", "");
             articleCard.title = StringUtil.htmlReString(card.getString("title"));
-            articleCard.view = StringUtil.toWan(card.getInt("view")) + "阅读";
+            articleCard.view = StringUtil.toWan(card.optInt("view", 0)) + "阅读";
 
             articleCardList.add(articleCard);
         }
+    }
+
+    /**
+     * 把接口返回的图片地址补全为可直接访问的完整地址。
+     * 兼容三种情况："//host/path"（协议相对）、"http(s)://host/path"（已完整）、"host/path"（缺协议）。
+     */
+    public static String fixImageUrl(String raw) {
+        if (raw == null) return "";
+        String url = raw.trim();
+        if (url.isEmpty()) return "";
+        if (url.startsWith("//")) return "https:" + url;
+        if (url.startsWith("http://") || url.startsWith("https://")) return url;
+        return "https://" + url;
     }
 
     /**
