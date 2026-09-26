@@ -176,6 +176,11 @@ public class FileUtil {
         return new File(getBiliClientDir(), "guide.txt");
     }
 
+    /** 获取搜索历史备份文件：/Documents/BiliClient/SearchRecords.txt */
+    public static File getSearchRecordsFile() {
+        return new File(getBiliClientDir(), "SearchRecords.txt");
+    }
+
     /** 获取登录信息文件：/Documents/BiliClient/login.txt（即使未登录也会创建） */
     public static File getLoginFile() {
         File file = new File(getBiliClientDir(), "login.txt");
@@ -224,13 +229,15 @@ public class FileUtil {
     }
 
     /**
-     * 检测 /Documents/BiliClient 内是否存在可用的备份文件（setting.txt 或 guide.txt 非空）
+     * 检测 /Documents/BiliClient 内是否存在可用的备份文件（setting.txt / guide.txt / SearchRecords.txt 非空）
      */
     public static boolean hasBackupFiles() {
         String setting = readString(getSettingFile());
         if (setting != null && !setting.isEmpty()) return true;
         String guide = readString(getGuideFile());
-        return guide != null && !guide.isEmpty();
+        if (guide != null && !guide.isEmpty()) return true;
+        String search = readString(getSearchRecordsFile());
+        return search != null && !search.isEmpty();
     }
 
     public static String getFileFirstName(String file) {
