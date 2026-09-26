@@ -6,6 +6,8 @@ import android.content.Intent;
 import android.database.SQLException;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.View;
@@ -32,6 +34,18 @@ import java.io.Writer;
 
 public class MsgUtil {
     private static Toast toast;
+
+    /** 主线程 Handler，仅用于延迟弹出置顶窗口（不依赖 CenterThreadPool 的重载，避免版本差异） */
+    private static volatile Handler mainHandler;
+
+    private static Handler getMainHandler() {
+        Handler handler = mainHandler;
+        if (handler == null) {
+            handler = new Handler(Looper.getMainLooper());
+            mainHandler = handler;
+        }
+        return handler;
+    }
 
     public static void showMsg(String str) {
         Logu.i(str);
@@ -244,7 +258,7 @@ public class MsgUtil {
                 Log.e("debug-error", "弹出窗口失败", e);
             }
         } else {
-            CenterThreadPool.runOnUiThreadAfter(300, () -> startWhenMainPageReady(intent, attempt + 1));
+            getMainHandler().postDelayed(() -> startWhenMainPageReady(intent, attempt + 1), 300);
         }
     }
 
